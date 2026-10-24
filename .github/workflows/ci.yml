@@ -1,0 +1,68 @@
+name: CI
+
+# CI for the AppHost repository itself: scaffold a smoke app from
+# template/ and prove the generated project builds and its wiring
+# tests pass, on Windows (full build + test) and Linux (lib tests).
+# App repos generated from the template get their own ci.yml.
+# Dependency pins live in the template's Cargo.toml — see AGENTS.md
+# before bumping them.
+#
+# The steps below are intentionally spelled out rather than composed
+# from shared building blocks: what CI runs should be readable from
+# this file alone. Keep the two jobs in step — a scaffold or build
+# fix usually applies to both.
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  smoke-windows:
+    name: Scaffold smoke (Windows)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Scaffold the smoke app
+        shell: pwsh
+        run: python scaffold-app.py --name SmokeApp --out "$env:RUNNER_TEMP\smokeapp"
+      - name: Check for unsubstituted placeholders
+        shell: pwsh
+        run: |
+          $hits = Select-String -Path "$env:RUNNER_TEMP\smokeapp\*" -Pattern '\{\{' -Recurse
+          if ($hits) { $hits; exit 1 }
+          Write-Host "no placeholders left"
+      - name: Build the generated app (release)
+        working-directory: ${{ env.RUNNER_TEMP }}/smokeapp
+        run: cargo build --release
+      - name: Test the generated app
+        working-directory: ${{ env.RUNNER_TEMP }}/smokeapp
+        run: cargo test
+  smoke-linux:
+    name: Scaffold smoke (Linux)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - name: Scaffold the smoke app
+        run: python3 scaffold-app.py --name SmokeApp --out "$RUNNER_TEMP/smokeapp"
+      - name: Check for unsubstituted placeholders
+        run: |
+          if grep -rn '{{' "$RUNNER_TEMP/smokeapp"; then
+            echo "unsubstituted placeholders remain" >&2
+            exit 1
+          fi
+          echo "no placeholders left"
+      - name: Test the generated app
+        working-directory: ${{ env.RUNNER_TEMP }}/smokeapp
+        run: cargo test
