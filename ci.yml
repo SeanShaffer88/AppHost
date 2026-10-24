@@ -1,0 +1,42 @@
+# Canonical CI for Sean's Rust Windows projects — copy to
+# .github/workflows/ci.yml. NOTE: the GitHub App cannot create/edit files
+# under .github/workflows/ (no Workflows permission), so this file is
+# always added through the GitHub web UI.
+#
+# AppHost is a generator + template, so instead of gating a crate in
+# place, each job scaffolds a smoke app from template/ into a temp
+# directory and gates THAT — the template never compiles in raw
+# {{token}} form, by design. The windows job is also the one place
+# the generated GUI is really LINKED (LNK2019-class errors and
+# Windows-only test failures only appear there).
+name: ci
+on:
+  push:
+    branches: [main]
+  pull_request:
+jobs:
+  smoke-windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - run: python scaffold-app.py --name SmokeApp --out "${{ runner.temp }}/apphost-smoke"
+      - run: $hits = Get-ChildItem -Recurse -File | Select-String -Pattern '\{\{'; if ($hits) { throw 'unsubstituted placeholder in generated app' }
+        working-directory: ${{ runner.temp }}/apphost-smoke
+      - run: cargo build --release
+        working-directory: ${{ runner.temp }}/apphost-smoke
+      - run: cargo test
+        working-directory: ${{ runner.temp }}/apphost-smoke
+  smoke-ubuntu:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - run: python3 scaffold-app.py --name SmokeApp --out /tmp/apphost-smoke
+      - run: "! grep -R '{{' /tmp/apphost-smoke"
+      - run: cargo test
+        working-directory: /tmp/apphost-smoke
